@@ -175,7 +175,7 @@ def main():
 
     # Getting config information
     ec = boto3.client('ec2')
-    ec2 = boto3.resource('ec2')
+    ec2 = boto3.resource('ec2', region_name= 'ap-south-1')
     ownerID = boto3.client('sts').get_caller_identity()['Account']
     
     get_ami(ec, ec2, no_of_ami, env_name, ownerID)
