@@ -174,7 +174,7 @@ def main():
     env_name = args.env_name
 
     # Getting config information
-    ec = boto3.client('ec2')
+    ec = boto3.client('ec2',region_name= 'ap-south-1')
     ec2 = boto3.resource('ec2', region_name= 'ap-south-1')
     ownerID = boto3.client('sts').get_caller_identity()['Account']
     
