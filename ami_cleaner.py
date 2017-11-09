@@ -25,25 +25,32 @@ def list_top_resources(items, tagValue, d, ec, ec2, ownerID):
 			print ("\nMaster Server (dcs-profile-api): ")
 
 	# Displaying AMIs and Instances
-	print ("\n S.No \t AMI ID \t\t AMI Creation Date \tInstance ID \t\t\t State \t\t Snapshot ID")
+	print ("\n S.No \t AMI ID \t AMI Creation Date \tInstance ID \t\t State \t\t Snapshot ID")
 	print("\n")
+
+	instances_r = []
 	counter = 0
+	extra_instance_counter = 0
 	for key, value in items:
 		if counter < 5:
-			snapshots = get_available_snapshots(ec, key, ownerID)
+			snapshots = get_available_snapshots(ec, ownerID)
 			for snapshot in snapshots:
 				if snapshot['Description'].find(key) > 0:
-					instances = get_available_instances(ec2)
-					for instance in instances:
-						if snapshot['Description'].find(instance.id) > 0:
-							print (" ",(counter+1),".\t AMI: " + key + "\t" , value, "\tInstance: "+instance.id + "\t" + instance.state['Name'] + "\t\t" + snapshot['SnapshotId'] )
+					resp = ec.describe_instances()
+					for instances1 in resp['Reservations']:
+						for instance1 in instances1['Instances']:
+							if instance1['ImageId'] == key:
+								print (" ",(counter+1),".\t " + key + "\t" , value, "\t"+ instance1['InstanceId'] + "\t" + instance1['State']['Name'] + "\t\tNo Snapshots")
+								counter = counter + 1
+							if snapshot['Description'].find(instance1['InstanceId']) > 0:
+								print (" ",(counter+1),".\t " + key + "\t" , value, "\t"+instance1['InstanceId'] + "\t" + instance1['State']['Name'] + "\t\t" + snapshot['SnapshotId'] )
 		counter = counter + 1
 
 
 def get_available_instances(ec2):
 		return ec2.instances.all()
 
-def get_available_snapshots(ec, imageID, ownerID):
+def get_available_snapshots(ec, ownerID):
 	snapshots = ec.describe_snapshots(OwnerIds = [ownerID])['Snapshots']
 	return snapshots
 
@@ -118,7 +125,7 @@ def delete_ami(ami_images, items, no_of_ami, ec, ec2, ownerID, tagValue, d):
 
 	# Getting top 3 instances connected to the top 3 images for later use
 	for ami in reserved_ami:
-			snapshots = get_available_snapshots(ec, ami, ownerID)
+			snapshots = get_available_snapshots(ec, ownerID)
 			for snapshot in snapshots:
 				if snapshot['Description'].find(ami) > 0:
 					instances = get_available_instances(ec2)
@@ -130,36 +137,50 @@ def delete_ami(ami_images, items, no_of_ami, ec, ec2, ownerID, tagValue, d):
 	for key, value in items:
 
 		if i >= int(no_of_ami):
-			for image in ami_images:
-				if image.id == key:
-					# Deregistering unused AMIs
-					# image.deregister()
-					print("\nAMI (" + image.id + ") - Deregistered. Creation Date: ",value)
-					# Getting all available snapshots connected to AMI
-					snapshots = get_available_snapshots(ec, image.id, ownerID)
-					for snapshot in snapshots:
-						if snapshot['Description'].find(image.id) > 0:
-							# Getting all available instances
-							instances = get_available_instances(ec2)
-							for instance in instances:
-								if snapshot['Description'].find(instance.id) > 0:
-									# Checking if the instances we are going to terminate are being used by the top AMIs in use
-									s_instances = set(reserved_instances)
-									if not instance.id in s_instances: 
+			# Getting all available snapshots connected to AMI
+			snapshots = get_available_snapshots(ec, ownerID)
+			for snapshot in snapshots:
+
+				if snapshot['Description'].find(key) > 0:
+					for image in ami_images:
+						if image.id == key:
+							# Deregistering the AMI
+							# image.deregister()
+							print("AMI Deleted - " +key)
+					# Checking for all instances connected to AMI
+					resp = ec.describe_instances()
+					for instances1 in resp['Reservations']:
+						for instance1 in instances1['Instances']:
+							s_instances = set(reserved_instances)
+							if instance1['ImageId'] == key:
+								if not instance1['InstanceId'] in s_instances:
+							 		# Terminating connected instance
+									# instance.terminate()
+									print ("Instance (" + instance1['InstanceId']+ ") - Terminated")
+								else:
+									if instance1['State']['Name'] == 'running':
+										print("Instance ("+instance1['InstanceId']+") - Not terminated (In use by one of top "+no_of_ami+" AMIs)")
+									else:
 										# Terminating connected instance
 										# instance.terminate()
-										print ("Instance (" + instance.id + ") - Terminated")
+										print ("Instance (" + instance1['InstanceId'] + ") - Terminated (In use by one of top "+no_of_ami+" AMIs but stopped)")
+							if snapshot['Description'].find(instance1['InstanceId']) > 0 :
+								# Checking if the instances we are going to terminate are being used by the top AMIs in use
+								if not instance1['InstanceId'] in s_instances: 
+									# Terminating connected instance
+									# instance.terminate()
+									print ("Instance (" + instance1['InstanceId'] + ") - Terminated")
+								else:
+									if instance1['State']['Name'] == 'running':
+										print("Instance ("+instance1['InstanceId']+") - Not terminated (In use by one of top "+no_of_ami+" AMIs)")
 									else:
-										if instance.state['Name'] == 'running':
-											print("Instance ("+instance.id+") - Not terminated (In use by one of top "+no_of_ami+" AMIs)")
-										else:
-											# Terminating connected instance
-											# instance.terminate()
-											print ("Instance (" + instance.id + ") - Terminated (In use by one of top "+no_of_ami+" AMIs but stopped)")
-							# Deleting associated snapshot
-							# snap = ec.delete_snapshot(SnapshotId=snapshot['SnapshotId'])
-							print("Snapshot (" + snapshot['SnapshotId'] + ") - Deleted")
-							print("\n-")
+										# Terminating connected instance
+										# instance.terminate()
+										print ("Instance (" + instance1['InstanceId'] + ") - Terminated (In use by one of top "+no_of_ami+" AMIs but stopped)")
+					# Deleting associated snapshot
+					# snap = ec.delete_snapshot(SnapshotId=snapshot['SnapshotId'])
+					print("Snapshot (" + snapshot['SnapshotId'] + ") - Deleted")
+					print("\n-")
 		i = i + 1
 	if i > int (no_of_ami) :
 		print ("Count of deleted AMIs: " , (i - int(no_of_ami)))
@@ -174,8 +195,8 @@ def main():
     env_name = args.env_name
 
     # Getting config information
-    ec = boto3.client('ec2',region_name= 'ap-south-1')
-    ec2 = boto3.resource('ec2', region_name= 'ap-south-1')
+    ec = boto3.client('ec2', region_name='ap-south-1')
+    ec2 = boto3.resource('ec2', region_name='ap-south-1')
     ownerID = boto3.client('sts').get_caller_identity()['Account']
     
     get_ami(ec, ec2, no_of_ami, env_name, ownerID)
